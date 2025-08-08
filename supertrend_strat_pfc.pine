@@ -1,0 +1,129 @@
+//@version=5
+strategy("Supertrend Strategy PFC", commission_type = strategy.commission.percent, commission_value = 0.01465, default_qty_value = 250, default_qty_type = strategy.percent_of_equity,margin_long = 20,margin_short = 20,overlay=true)
+
+// Supertrend Indicator
+atrPeriod = input.int(10, "ATR Length", minval=1)
+factor = input.float(5, "Factor", minval=0.01, step=0.01)
+[supertrend, direction] = ta.supertrend(factor, atrPeriod)
+
+var float entryPrice = 0.0
+var bool t1 = false
+var bool t2 = false
+var bool t3 = false
+var bool t0 = false
+var float lastEntryPrice = 0.0
+var bool wasStoppedOut = false
+var bool wasLong = false
+var bool positionClosedForExpiry = false
+
+// Function to check if today is the last Thursday of the month
+isLastThursdayOfMonth() =>
+    currentYear = year(time)
+    currentMonth = month(time)
+    currentDay = dayofmonth(time)
+    currentWeekDay = dayofweek(time)  // 0 = Sunday, 4 = Thursday
+
+    daysInMonth = currentMonth == 2 ? 28 : 
+                 currentMonth == 1 or currentMonth == 3 or currentMonth == 5 or currentMonth == 7 or currentMonth == 8 or currentMonth == 10 or currentMonth == 12 ? 31 : 30
+
+    if currentWeekDay == 5  // Thursday
+        nextThursdayDay = currentDay + 7
+        if nextThursdayDay > daysInMonth
+            true  
+        else
+            false  
+    else
+        false  
+
+// Function to check if it's 15 minutes before market close (assuming market closes at 15:00)
+fifteenMinutesBeforeClose() =>
+    currentHour = hour(time)
+    currentMinute = minute(time)
+    timeframe.isminutes and currentHour == 15 and currentMinute == 15
+
+// Check if it's the last bar of the trading day
+isLastBarOfDay() =>
+    timeframe.isminutes and hour(time) == 15 and minute(time) == 25
+
+// Detect trend changes
+trendChange = ta.change(direction) != 0
+
+// Logic for entering trades and managing existing positions
+if trendChange
+    // Close any existing position based on its type
+    if strategy.position_size > 0
+        strategy.close("Close Long", comment="Close Long on Trend Change")
+    else if strategy.position_size < 0
+        strategy.close("Close Short", comment="Close Short on Trend Change")
+    
+    // Enter new position based on the new trend
+    if direction < 0
+        strategy.entry("Long", strategy.long)
+        entryPrice := close
+        lastEntryPrice := close
+        wasLong := true
+    else if direction > 0
+        strategy.entry("Short", strategy.short)
+        entryPrice := close
+        lastEntryPrice := close
+        wasLong := false
+
+    t1 := false
+    t2 := false
+    t3 := false
+    t0 := false
+
+
+
+if strategy.position_size > 0  // For Long trades
+    // if not t0 and high >= entryPrice * 1.01
+    //     strategy.exit("T0 Profit Long", "Long", qty_percent=10, limit=open)
+    //     t0 := true
+    // if not t1 and high >= entryPrice * 1.01
+    //     strategy.exit("T1 Profit Long", "Long", qty_percent=30, limit=open)
+    //     t1 := true
+    if not t2 and high >= entryPrice * 1.06
+        strategy.exit("T1 Profit Long", "Long", qty_percent=50, limit=open)
+        t2 := true
+    // if not t3 and high >= entryPrice * 1.06
+    //     strategy.exit("T3 Profit Long", "Long", qty_percent=10, limit=open)
+    //     t3 := true
+    if close < entryPrice * 0.99
+        strategy.exit("Stop Loss Long", comment="Stop Loss Long Hit", limit = open)
+
+else if strategy.position_size < 0  // For Short trades
+    // if not t0 and low <= entryPrice * 0.99
+    //     strategy.exit("T0 Profit Short", "Short", qty_percent=10, limit=open)
+    //     t0 := true
+    // if not t1 and low <= entryPrice * 0.99
+    //     strategy.exit("T1 Profit Short", "Short", qty_percent=30, limit=open)
+    //     t1 := true
+    if not t2 and low <= entryPrice * 0.94
+        strategy.exit("T1 Profit Short", "Short", qty_percent=50, limit=open)
+        t2 := true
+    //     strategy.exit("T3 Profit Short", "Short", qty_percent=10, limit=open)
+    //     t3 := true
+    if close > entryPrice * 1.01
+        strategy.exit("Stop LossShort", comment="Stop Loss Short Hit", limit = open)
+
+// Exit condition for expiry
+if isLastThursdayOfMonth() and fifteenMinutesBeforeClose()
+    if strategy.position_size > 0
+        strategy.close("Long", comment="Closed Long due to expiry")
+        positionClosedForExpiry := true
+    else if strategy.position_size < 0
+        strategy.close("Short", comment="Closed Short due to expiry")
+        positionClosedForExpiry := true
+
+// Reopen the position on the last bar of the day if it was closed due to expiry
+if isLastBarOfDay() and positionClosedForExpiry
+    if wasLong
+        strategy.entry("Long Post Expiry", strategy.long)
+        strategy.exit("Long Stop Loss Post Expiry", "Long Post Expiry", stop=lastEntryPrice * (1 - 0.01))
+    else
+        strategy.entry("Short Post Expiry", strategy.short)
+        strategy.exit("Short Stop Loss Post Expiry", "Short Post Expiry", stop=lastEntryPrice * (1 + 0.01))
+    positionClosedForExpiry := false
+
+// Plotting the Supertrend (for visualization)
+plot(supertrend, color=direction < 0 ? color.green : color.red, style=plot.style_stepline, linewidth=2)
