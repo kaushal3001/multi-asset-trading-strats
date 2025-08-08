@@ -1,0 +1,173 @@
+//@version=5
+strategy("3 day RSI Strategy SAIL", overlay=true)
+
+// Inputs from Indicator
+src = close
+len = input.int(2, minval=1, title="Length")
+
+// RSI Calculation
+up = ta.rma(math.max(ta.change(src), 0), len)
+down = ta.rma(-math.min(ta.change(src), 0), len)
+rsi = down == 0 ? 100 : up == 0 ? 0 : 100 - (100 / (1 + up / down))
+
+// Track Last Trade Closure
+var int last_exit_bar = na
+var bool lastTradeWasStopped = false
+
+// Update Last Exit Bar When a Trade Closes
+if strategy.position_size == 0 and strategy.position_size[1] != 0 and lastTradeWasStopped == false
+    last_exit_bar := bar_index
+
+// Entry Conditions
+// Long: 3 consecutive RSI > 60 after last exit
+
+long_condition = rsi > 55 and rsi[1] > 55 and rsi[2] > 55 and 
+                 (na(last_exit_bar) or (bar_index > last_exit_bar + 2))
+// Short: 3 consecutive RSI < 40 after last exit
+short_condition = rsi < 45 and rsi[1] < 45 and rsi[2] < 45 and 
+                  (na(last_exit_bar) or (bar_index > last_exit_bar + 2))
+                  
+
+var bool wasLong = false
+var bool positionClosedForExpiry = false
+var bool isLastThursdayOfMonth = false
+var float lastEntryPrice = 0.0
+var bool isPostExpiryTrade = false
+// Get asset name
+assetName = syminfo.ticker
+
+// Function to get the last Thursday of the month
+isLastThursdayOfMonth() =>
+    currentYear = year(time)
+    currentMonth = month(time)
+    currentDay = dayofmonth(time)
+    currentWeekDay = dayofweek(time)  // 0 = Sunday, 4 = Thursday
+
+    // Function to get days in a month, simplified (ignoring leap years)
+    daysInMonth = currentMonth == 2 ? 28 : 
+                 currentMonth == 1 or currentMonth == 3 or currentMonth == 5 or currentMonth == 7 or currentMonth == 8 or currentMonth == 10 or currentMonth == 12 ? 31 : 30
+
+    // Check if today is a Thursday
+    if currentWeekDay == 5  // Thursday
+        // Check if adding 7 days would keep us in the same month
+        nextThursdayDay = currentDay + 7
+        if nextThursdayDay > daysInMonth
+            true  // If adding 7 days pushes us past the month's end, today is the last Thursday
+        else
+            false  // If there's room for another Thursday this month, today isn't the last one
+    else
+        false  // If today isn't Thursday, can't be the last Thursday of the month
+
+// Example usage within your script
+var bool isTodayLastThursday = isLastThursdayOfMonth()
+
+fifteenMinutesBeforeClose() =>
+    currentHour = hour(time)
+    currentMinute = minute(time)
+    timeframe.isminutes and currentHour == 14 and currentMinute == 45
+
+
+// Check if it's the last bar of the trading day
+isLastBarOfDay() =>
+    timeframe.isminutes and hour(time) == 15 and minute(time) == 15
+
+                  
+if long_condition and not (fifteenMinutesBeforeClose() and isLastThursdayOfMonth())
+    if strategy.position_size < 0  // If any position is open
+        close_comment = isPostExpiryTrade ? "Close Short Post Expiry" : "Close Short"
+        alertMsgCloseShortOpenLong = "Asset: " + assetName + ", Order: Close Short and Open Long, Price: " + str.tostring(close)
+        strategy.close_all(comment=close_comment)
+        strategy.entry("Long", strategy.long, alert_message=alertMsgCloseShortOpenLong)
+        lastEntryPrice := strategy.position_avg_price
+        wasLong := true
+        positionClosedForExpiry := false
+        isPostExpiryTrade := false
+        lastTradeWasStopped := false
+    else
+        alertMsgLong = "Asset: " + assetName + ", Order: Open Long, Price: " + str.tostring(close)
+        strategy.entry("Long", strategy.long, alert_message=alertMsgLong)
+        lastEntryPrice := strategy.position_avg_price
+        wasLong := true
+        positionClosedForExpiry := false
+        isPostExpiryTrade := false
+        lastTradeWasStopped := false
+
+if short_condition and not (fifteenMinutesBeforeClose() and not isLastThursdayOfMonth())
+    if strategy.position_size > 0  // If any position is open
+        close_comment = isPostExpiryTrade ? "Close Long Post Expiry" : "Close Long"
+        alertMsgCloseLongOpenShort = "Asset: " + assetName + ", Order: Close Long and Open Short, Price: " + str.tostring(close)
+        strategy.close_all(comment=close_comment)
+        strategy.entry("Short", strategy.short, alert_message=alertMsgCloseLongOpenShort)
+        lastEntryPrice := strategy.position_avg_price
+        wasLong := false
+        positionClosedForExpiry := false
+        isPostExpiryTrade := false
+        lastTradeWasStopped := false
+    else
+        alertMsgShort = "Asset: " + assetName + ", Order: Open Short, Price: " + str.tostring(close)
+        strategy.entry("Short", strategy.short, alert_message=alertMsgShort)
+        lastEntryPrice := strategy.position_avg_price
+        wasLong := false
+        positionClosedForExpiry := false
+        isPostExpiryTrade := false
+        lastTradeWasStopped := false
+
+var float entry_price = na
+
+// Update Entry Price on New Position
+if strategy.position_size != 0 //and strategy.position_size[1] == 0
+    entry_price := strategy.position_avg_price
+
+// Long Position Exits
+if strategy.position_size > 0
+    // Take Profit: 5% above entry (updated from your code)
+    if high >= entry_price * 1.07
+        alertMsgCloseLong = "Asset: " + assetName + ", Order: Close Long, Price: " + str.tostring(close)
+        strategy.close("Long", comment="Long TP", alert_message = alertMsgCloseLong)
+    // Stop Loss: 6% below entry (updated from your code)
+    if close <= entry_price * 0.99
+        alertMsgStopLong = "Asset: " + assetName + ", Order: Close Long Stop, Price: " + str.tostring(close)
+        strategy.close("Long", comment="Long Stop Loss", alert_message = alertMsgStopLong)
+        lastTradeWasStopped := true
+
+// Short Position Exits
+if strategy.position_size < 0
+    // Take Profit: 5% below entry (updated from your code)
+    if low <= entry_price * 0.93
+        alertMsgCloseShort = "Asset: " + assetName + ", Order: Close Short, Price: " + str.tostring(close)
+        strategy.close("Short", comment="Short TP", alert_message = alertMsgCloseShort)
+    // Stop Loss: 6% above entry (updated from your code)
+    if close >= entry_price * 1.01
+        alertMsgStopShort = "Asset: " + assetName + ", Order: Close Short Stop, Price: " + str.tostring(close)
+        strategy.close("Short", comment="Short Stop Loss", alert_message = alertMsgStopShort)
+        lastTradeWasStopped := true
+
+// // Exit condition for expiry
+if isLastThursdayOfMonth() and fifteenMinutesBeforeClose()
+    if strategy.position_size > 0
+        alertMsgCloseLong = "Asset: " + assetName + ", Order: Close Long Expiry, Price: " + str.tostring(close)
+        strategy.close("Long", comment="Closed Long due to expiry", alert_message = alertMsgCloseLong)
+        positionClosedForExpiry := true
+    else if strategy.position_size < 0
+        alertMsgCloseShort = "Asset: " + assetName + ", Order: Close Short Expiry, Price: " + str.tostring(close)
+        strategy.close("Short", comment="Closed Short due to expiry", alert_message = alertMsgCloseShort)
+        positionClosedForExpiry := true
+
+// Reopen the position on the last bar of the day if it was closed due to expiry
+if isLastBarOfDay() and isLastThursdayOfMonth() and positionClosedForExpiry
+    if wasLong and lastEntryPrice * (1 - 0.01) <= close
+        alertMsgLong = "Asset: " + assetName + ", Order: Open Long, Price: " + str.tostring(close)
+        strategy.entry("Long Post Expiry", strategy.long, alert_message = alertMsgLong)
+        isPostExpiryTrade := true
+        alertMsgCloseLong = "Asset: " + assetName + ", Order: Close Long Stop, Price: " + str.tostring(close)
+        strategy.exit("Long Stop Loss Post Expiry", "Long Post Expiry", stop=lastEntryPrice * (1 - 0.01), alert_loss = alertMsgCloseLong)
+    if not wasLong and close <= lastEntryPrice * (1 + 0.01)
+        alertMsgShort = "Asset: " + assetName + ", Order: Open Short, Price: " + str.tostring(close)
+        strategy.entry("Short Post Expiry", strategy.short, alert_message = alertMsgShort)
+        isPostExpiryTrade := true
+        alertMsgCloseShort = "Asset: " + assetName + ", Order: Close Short Stop, Price: " + str.tostring(close)
+        strategy.exit("Short Stop Loss Post Expiry", "Short Post Expiry", stop=lastEntryPrice * (1 + 0.01), alert_loss = alertMsgCloseShort)
+    positionClosedForExpiry := false
+
+if strategy.position_size == 0 and strategy.position_size[1] != 0
+    isPostExpiryTrade := false
