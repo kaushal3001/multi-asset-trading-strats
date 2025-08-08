@@ -1,0 +1,30 @@
+//@version=5
+strategy("5 EMA / 21 EMA Crossover Strategy with Short Trades", overlay=true)
+
+// Define EMAs
+ema5 = ta.ema(close, 5)
+ema21 = ta.ema(close, 21)
+
+// Long Entry Condition: Buy when 5 EMA crosses above 21 EMA
+longCondition = ta.crossover(ema5, ema21)
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+// Long Exit Condition: Sell when 21 EMA crosses above 5 EMA
+longExitCondition = ta.crossunder(ema5, ema21)
+if (longExitCondition)
+    strategy.close("Long")
+
+// Short Entry Condition: Sell short when 5 EMA crosses below 21 EMA
+shortCondition = ta.crossunder(ema5, ema21)
+if (shortCondition)
+    strategy.entry("Short", strategy.short)
+
+// Short Exit Condition: Cover short when 5 EMA crosses above 21 EMA
+shortExitCondition = ta.crossover(ema5, ema21)
+if (shortExitCondition)
+    strategy.close("Short")
+
+// Plot EMAs
+plot(ema5, title="5 EMA", color=color.blue, linewidth=2)
+plot(ema21, title="21 EMA", color=color.red, linewidth=2)
