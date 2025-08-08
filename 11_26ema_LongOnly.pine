@@ -1,0 +1,50 @@
+//@version=5
+strategy("11 & 26 EMA Crossover Long-Only Strategy with 5% Stop Loss", overlay=true)
+
+// Define EMA periods for short and long term
+shortEmaLength = 11
+longEmaLength = 26
+
+// Define Stop Loss Percentage
+stopLossPercent = 5.0 / 100  // 5% Stop Loss
+
+// Calculate 11-day and 26-day EMAs
+shortEma = ta.ema(close, shortEmaLength)
+longEma = ta.ema(close, longEmaLength)
+
+// Plot EMAs on the chart
+plot(shortEma, color=color.green, linewidth=2, title="11-day EMA")
+plot(longEma, color=color.red, linewidth=2, title="26-day EMA")
+
+// Crossover conditions for Long-Only
+longCondition = ta.crossover(shortEma, longEma)     // 11-day EMA crosses above 26-day EMA (enter long)
+closeCondition = ta.crossunder(shortEma, longEma)   // 11-day EMA crosses below 26-day EMA (exit long)
+
+// Variable to store stop loss level for long positions
+var float longStopLoss = na
+
+// Long position logic
+if (longCondition) 
+    // Open a long position when the short EMA crosses above the long EMA
+    strategy.entry("Long", strategy.long)
+
+// Set stop loss level based on entry price
+if (strategy.position_size > 0)  // Long position open
+    longStopLoss := strategy.position_avg_price * (1 - stopLossPercent)
+
+// Stop-loss logic for long position
+if (strategy.position_size > 0 and close < longStopLoss)
+    // Close the long position immediately if the price drops below the stop-loss level
+    strategy.close("Long", comment="Stop Loss")
+
+// Close position logic based on EMA crossover
+if (closeCondition)
+    // Close long position when short EMA crosses below long EMA
+    strategy.close("Long", comment="EMA Crossover Exit")
+
+// Plot open/close signals on the chart
+plotshape(series=longCondition, title="Open Long Signal", location=location.belowbar, color=color.green, style=shape.labelup, text="LONG")
+plotshape(series=closeCondition, title="Close Long Signal", location=location.abovebar, color=color.red, style=shape.labeldown, text="CLOSE")
+
+// Plot Stop Loss level for visualization
+plot(longStopLoss, color=color.orange, linewidth=1, title="Long Stop Loss Level")
