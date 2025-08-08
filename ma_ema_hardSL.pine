@@ -1,0 +1,50 @@
+// @version=5
+strategy("MA/EMA Crossover Long-Only Strategy with Hard Stop Loss", overlay=true)
+
+// Define input for the MA and EMA periods
+ma_length = input.int(50, title="MA Length")
+
+ema_length = input.int(21, title="EMA Length")
+
+// Define Stop Loss Parameters
+stopLossPercent = input.float(5.0, title="Stop Loss Percentage", minval=0.1) / 100 // 5%
+
+// Calculate MA and EMA
+ma = ta.sma(close, ma_length)
+ema = ta.ema(close, ema_length)
+
+// Plot MA and EMA on the chart
+plot(ma, color=color.blue, linewidth=2, title="MA")
+plot(ema, color=color.red, linewidth=2, title="EMA")
+
+// Crossover conditions (Long-Only)
+longCondition = ta.crossover(ema, ma)     // EMA crosses above MA (open long)
+closeCondition = ta.crossunder(ema, ma)   // EMA crosses below MA (close long)
+
+// Long position logic
+if (longCondition) 
+    // Open a long position when EMA crosses above MA
+    strategy.entry("Long", strategy.long)
+
+// Calculate Stop Loss level after opening a long position
+var float longStopLoss = na  // Initialize variable to hold stop loss level
+if (strategy.position_size > 0)  // Check if there is an open long position
+    longStopLoss := strategy.position_avg_price * (1 - stopLossPercent) // Set stop loss level
+
+// Close position logic for stop loss
+if (strategy.position_size > 0 and close < longStopLoss)
+    // Close the long position immediately if the price goes below the stop loss level
+    strategy.close("Long")
+
+// Close position logic for EMA crossover
+if (closeCondition)
+    // Close the long position when EMA crosses below MA
+    strategy.close("Long")
+
+// Plot open/close signals on the chart
+plotshape(series=longCondition, title="Open Long Signal", location=location.belowbar, color=color.green, style=shape.labelup, text="LONG")
+plotshape(series=closeCondition, title="Close Long Signal", location=location.abovebar, color=color.red, style=shape.labeldown, text="CLOSE")
+
+// Plot Stop Loss level for visualization
+plot(longStopLoss, color=color.orange, linewidth=1, title="Stop Loss Level")
+
